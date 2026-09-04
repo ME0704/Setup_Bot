@@ -4,31 +4,42 @@ Tune thresholds here as you test — don't touch logic files for tuning.
 """
 
 # Pairs the bot watches. Must match your MT5 Market Watch symbol names exactly.
+# Majors + crosses use the .m suffix to match your broker's naming — VERIFY
+# each one exists in your Market Watch (Ctrl+U in MT5) before relying on it;
+# not every broker offers every cross (thin ones like NZDCHF sometimes aren't).
 PAIRS = [
-    "GBPUSD.m",
-    "USDJPY.m",
-    "JP225.std",
-    "XAUUSD.m",
-    "UK100.std",
-    "US30.std",
-    "AUDJPY.m",
+    # Majors
+    "EURUSD.m", "GBPUSD.m", "USDJPY.m", "USDCHF.m", "USDCAD.m", "AUDUSD.m", "NZDUSD.m",
+    # EUR crosses
+    "EURGBP.m", "EURJPY.m", "EURCHF.m", "EURCAD.m", "EURAUD.m", "EURNZD.m",
+    # GBP crosses
+    "GBPJPY.m", "GBPCHF.m", "GBPCAD.m", "GBPAUD.m", "GBPNZD.m",
+    # AUD/NZD crosses
+    "AUDJPY.m", "AUDCHF.m", "AUDCAD.m", "AUDNZD.m",
+    "NZDJPY.m", "NZDCHF.m", "NZDCAD.m",
+    # CAD/CHF crosses
+    "CADJPY.m", "CADCHF.m", "CHFJPY.m",
+    # Indices / metals (your original set)
+    "JP225.std", "XAUUSD.m", "UK100.std", "US30.std",
 ]
 
 # --- Reference info only (not used in code logic) ---
 # MT5 already gives each symbol its OWN correct candle close times based on
 # that symbol's actual trading session — you don't need to configure close
 # times anywhere, the bot reads them straight off each symbol's real data.
-# This table is just so you know what to expect when alerts land:
+# On this broker, all watched symbols close their 4H candles at the same
+# time (confirmed against the broker server directly) — no offset between
+# FX pairs, gold, and indices here.
 #
-#   Symbol       | Approx pip/point size      | 4H close pattern (server time)
-#   -------------|-----------------------------|---------------------------------
-#   GBPUSD.m     | 0.0001 (5th decimal)        | standard FX session boundaries
-#   USDJPY.m     | 0.01   (3rd decimal, JPY)   | standard FX session boundaries
-#   AUDJPY.m     | 0.01   (3rd decimal, JPY)   | standard FX session boundaries
-#   XAUUSD.m     | 0.01   (gold, 2 decimals)   | closes ~1H after FX majors
-#   JP225.std    | 1.0    (index points)       | closes ~1H after FX majors
-#   UK100.std    | 1.0    (index points)       | standard/index session boundaries
-#   US30.std     | 1.0    (index points)       | standard/index session boundaries
+#   Symbol       | Approx pip/point size
+#   -------------|-----------------------------
+#   GBPUSD.m     | 0.0001 (5th decimal)
+#   USDJPY.m     | 0.01   (3rd decimal, JPY)
+#   AUDJPY.m     | 0.01   (3rd decimal, JPY)
+#   XAUUSD.m     | 0.01   (gold, 2 decimals)
+#   JP225.std    | 1.0    (index points)
+#   UK100.std    | 1.0    (index points)
+#   US30.std     | 1.0    (index points)
 #
 # Exact pip VALUE in your account currency depends on lot size and your
 # account currency — check each symbol's "Specification" tab in MT5
@@ -43,8 +54,14 @@ PAIRS = [
 BROKER_SERVER_UTC_OFFSET_HOURS = 3
 
 # How many historical candles to pull each time (plenty of buffer for swing detection)
-DAILY_LOOKBACK = 60
+DAILY_LOOKBACK = 150
 H4_LOOKBACK = 200
+
+# How far back (in Daily candles) to search for a qualifying A-shape/V-shape
+# rejection pivot. The bot won't stop at just the most recent pivot if it
+# doesn't qualify — it searches backward up to this many candles for the
+# most recent one that actually agrees with trend and sits inside its range.
+SHAPE_LOOKBACK_CANDLES = 100
 
 # --- Rejection detection tuning ---
 # A candle counts as a "rejection" off a level if the wick on the level side
@@ -59,6 +76,11 @@ LEVEL_TOUCH_TOLERANCE_PIPS = {
     "XAUUSD.m": 150,
     "USDJPY.m": 15,
     "AUDJPY.m": 15,
+    "EURJPY.m": 15,
+    "GBPJPY.m": 20,
+    "NZDJPY.m": 15,
+    "CADJPY.m": 15,
+    "CHFJPY.m": 15,
     "JP225.std": 300,
     "UK100.std": 300,
     "US30.std": 300,

@@ -3,12 +3,18 @@ Entry point. Run this with:  python main.py
 
 Loop logic:
 - Every POLL_INTERVAL_SECONDS, re-check every pair in config.PAIRS
-- Only alert ONCE per pair per daily bias setup (tracked in `already_alerted`)
-- Resets the "already alerted" flag when the daily candle rolls over
-  (i.e. when today's daily open time changes)
+- evaluate_pair() now returns a LIST of trade ideas (0, 1, or 2 — one per
+  direction), since we no longer gate on the Daily trend.
+- Alert de-duplication is PERSISTED TO DISK (logs/alert_state.json), keyed
+  per symbol+direction to the exact (rejection_time, bos_time) pair. This
+  means restarting the bot can never re-send an alert you already got, and
+  a symbol can carry an active buy idea and sell idea at the same time,
+  tracked independently.
 """
 
 import time
+import json
+import os
 from datetime import datetime, timezone
 
 import data_feed
@@ -16,38 +22,57 @@ import bias_engine
 import alert
 from config import PAIRS, POLL_INTERVAL_SECONDS
 
+STATE_FILE = "logs/alert_state.json"
+
+
+def load_state():
+    if not os.path.isfile(STATE_FILE):
+        return {}
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def signature_for(result):
+    return f"{result['rejection_time'].isoformat()}|{result['bos_time'].isoformat()}"
+
 
 def run():
     data_feed.connect()
-
-    # Tracks which pairs have already fired an alert for the CURRENT daily candle
-    already_alerted = {symbol: False for symbol in PAIRS}
-    last_daily_open_time = {symbol: None for symbol in PAIRS}
+    state = load_state()
 
     print(f"[main] Watching {len(PAIRS)} pairs. Checking every {POLL_INTERVAL_SECONDS}s.")
     print(f"[main] Pairs: {', '.join(PAIRS)}")
+    print(f"[main] Loaded {len(state)} previously-alerted signatures from disk.")
 
     try:
         while True:
             for symbol in PAIRS:
                 try:
-                    # Detect new daily candle -> reset alert flag for this pair
-                    daily_df = data_feed.get_candles(symbol, "D1", 3)
-                    today_open_time = daily_df.iloc[-1]["time"]
+                    results = bias_engine.evaluate_pair(symbol)
 
-                    if last_daily_open_time[symbol] != today_open_time:
-                        last_daily_open_time[symbol] = today_open_time
-                        already_alerted[symbol] = False
+                    for result in results:
+                        key = f"{symbol}_{result['bias']}"
+                        sig = signature_for(result)
 
-                    if already_alerted[symbol]:
-                        continue  # already sent today's alert for this pair
+                        if state.get(key) == sig:
+                            continue  # already alerted this EXACT setup
 
-                    result = bias_engine.evaluate_pair(symbol)
-                    if result is not None:
                         message = alert.format_message(result)
                         alert.send_telegram_alert(message)
                         alert.log_alert(result)
-                        already_alerted[symbol] = True
+
+                        state[key] = sig
+                        save_state(state)
+
                         print(f"[{datetime.now(timezone.utc)}] ALERT SENT: {symbol} - {result['bias']}")
 
                 except Exception as pair_error:
