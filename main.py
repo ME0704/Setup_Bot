@@ -10,6 +10,8 @@ Loop logic:
   means restarting the bot can never re-send an alert you already got, and
   a symbol can carry an active buy idea and sell idea at the same time,
   tracked independently.
+- Alerts are routed ONLY to chats subscribed to that specific pair (via
+  /pairs in listener.py), not blasted to everyone in .env.
 """
 
 import time
@@ -20,6 +22,9 @@ from datetime import datetime, timezone
 import data_feed
 import bias_engine
 import alert
+import user_settings
+import bias_engine_weekly
+import supabase_settings
 from config import PAIRS, POLL_INTERVAL_SECONDS
 
 STATE_FILE = "logs/alert_state.json"
@@ -57,18 +62,30 @@ def run():
         while True:
             for symbol in PAIRS:
                 try:
-                    results = bias_engine.evaluate_pair(symbol)
+                    results = bias_engine.evaluate_pair(symbol) + bias_engine_weekly.evaluate_pair(symbol)
 
                     for result in results:
-                        key = f"{symbol}_{result['bias']}"
+                        tf_tag = result.get("timeframe_pair", "D1→H4")
+                        key = f"{symbol}_{result['bias']}_{tf_tag}"
                         sig = signature_for(result)
 
                         if state.get(key) == sig:
                             continue  # already alerted this EXACT setup
 
                         message = alert.format_message(result)
-                        alert.send_telegram_alert(message)
-                        alert.log_alert(result)
+                        alert.log_alert(result)  # always log, regardless of subscribers
+
+                        subscribers = set(user_settings.get_subscribers_for_pair(symbol))
+                        try:
+                            subscribers |= set(supabase_settings.get_subscribers_for_pair(symbol))
+                        except Exception as sb_error:
+                            print(f"[main] Supabase lookup failed (using local subscribers only): {sb_error}")
+                        subscribers = list(subscribers)  
+                        if subscribers:
+                            alert.send_to_chat_ids(message, subscribers)
+                        else:
+                            print(f"[main] {symbol} setup found but no subscribers — not sent. "
+                                  f"(Send /pairs to the bot to subscribe.)")
 
                         state[key] = sig
                         save_state(state)

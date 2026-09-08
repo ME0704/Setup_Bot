@@ -1,0 +1,48 @@
+{
+  "1399315290": {
+    "pairs": [
+      "EURUSD.m",
+      "USDJPY.m",
+      "USDCAD.m",
+      "GBPUSD.m",
+      "USDCHF.m",
+      "AUDUSD.m",
+      "NZDUSD.m",
+      "EURAUD.m",
+      "EURJPY.m",
+      "GBPCHF.m",
+      "GBPJPY.m",
+      "GBPCAD.m",
+      "GBPNZD.m",
+      "GBPAUD.m",
+      "AUDCHF.m",
+      "AUDCAD.m",
+      "AUDNZD.m",
+      "NZDCHF.m",
+      "NZDCAD.m",
+      "XAUUSD.m",
+      "JP225.std",
+      "UK100.std",
+      "US30.std"
+    ]
+  },
+  "-1003920890611": {
+    "pairs": [
+      "NZDUSD.m",
+      "NZDCAD.m",
+      "EURUSD.m",
+      "GBPUSD.m",
+      "AUDUSD.m",
+      "USDCHF.m",
+      "USDCAD.m",
+      "USDJPY.m",
+      "EURAUD.m",
+      "XAUUSD.m",
+      "US30.std",
+      "JP225.std",
+      "UK100.std",
+      "GBPAUD.m",
+      "AUDCAD.m"
+    ]
+  }
+}

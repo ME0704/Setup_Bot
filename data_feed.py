@@ -27,6 +27,7 @@ def get_candles(symbol: str, timeframe: str, count: int) -> pd.DataFrame:
     tf_map = {
         "D1": mt5.TIMEFRAME_D1,
         "H4": mt5.TIMEFRAME_H4,
+        "W1": mt5.TIMEFRAME_W1,
     }
     if timeframe not in tf_map:
         raise ValueError(f"Unsupported timeframe: {timeframe}")

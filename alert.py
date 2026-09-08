@@ -56,7 +56,7 @@ def format_message(result: dict) -> str:
         alignment_text = "Aligned" if result["trend_aligned"] else "Not aligned (counter-trend)"
 
     lines = [
-        f"{arrow} {side} · {result['symbol']} · D1→H4",
+        f"{arrow} {side} · {result['symbol']} · {result.get('timeframe_pair', 'D1→H4')}",
         "External breakout confirmed",
         "",
         f"Rule           : {result['rule_name']}",
@@ -87,6 +87,12 @@ def send_telegram_alert(message: str):
             "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing. Check your .env file."
         )
     chat_ids = [cid.strip() for cid in CHAT_ID.split(",") if cid.strip()]
+    return send_to_chat_ids(message, chat_ids)
+
+
+def send_to_chat_ids(message: str, chat_ids):
+    if not TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN missing. Check your .env file.")
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     responses = []
     for chat_id in chat_ids:
@@ -94,7 +100,6 @@ def send_telegram_alert(message: str):
         resp.raise_for_status()
         responses.append(resp.json())
     return responses
-
 
 def log_alert(result: dict):
     file_exists = os.path.isfile(LOG_FILE)

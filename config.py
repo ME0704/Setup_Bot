@@ -20,7 +20,7 @@ PAIRS = [
     # CAD/CHF crosses
     "CADJPY.m", "CADCHF.m", "CHFJPY.m",
     # Indices / metals (your original set)
-    "JP225.std", "XAUUSD.m", "UK100.std", "US30.std",
+    "JP225.std", "XAUUSD.m", "UK100.std", "US30.std", "US100.std", "GER40.m", "BTCUSD.m", "ETHUSD.m", "XAGUSD.m",
 ]
 
 # --- Reference info only (not used in code logic) ---
@@ -57,6 +57,9 @@ BROKER_SERVER_UTC_OFFSET_HOURS = 3
 DAILY_LOOKBACK = 150
 H4_LOOKBACK = 200
 
+WEEKLY_LOOKBACK = 150
+DAILY_LOOKBACK_FOR_W1 = 250
+
 # How far back (in Daily candles) to search for a qualifying A-shape/V-shape
 # rejection pivot. The bot won't stop at just the most recent pivot if it
 # doesn't qualify — it searches backward up to this many candles for the
@@ -84,6 +87,11 @@ LEVEL_TOUCH_TOLERANCE_PIPS = {
     "JP225.std": 300,
     "UK100.std": 300,
     "US30.std": 300,
+    "GER40.m": 300,
+    "US100.std": 300,
+    "BTCUSD.m": 5000,  
+    "ETHUSD.m": 500,   
+    "XAGUSD.m": 300, 
 }
 
 # --- Liquidity sweep tuning ---
