@@ -20,7 +20,7 @@ PAIRS = [
     # CAD/CHF crosses
     "CADJPY.m", "CADCHF.m", "CHFJPY.m",
     # Indices / metals (your original set)
-    "JP225.std", "XAUUSD.m", "UK100.std", "US30.std", "US100.std", "GER40.m", "BTCUSD.m", "ETHUSD.m", "XAGUSD.m",
+    "JP225.std", "XAUUSD.m", "UK100.std", "US30.std", "US100.std", "DE40.std", "BTCUSD.m", "ETHUSD.m", "XAGUSD.m",
 ]
 
 # --- Reference info only (not used in code logic) ---
@@ -87,7 +87,7 @@ LEVEL_TOUCH_TOLERANCE_PIPS = {
     "JP225.std": 300,
     "UK100.std": 300,
     "US30.std": 300,
-    "GER40.m": 300,
+    "DE40.std": 300,
     "US100.std": 300,
     "BTCUSD.m": 5000,  
     "ETHUSD.m": 500,   
