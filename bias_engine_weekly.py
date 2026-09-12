@@ -83,6 +83,10 @@ def evaluate_pair(symbol: str):
             (direction == "bullish" and this_week_swept == "low") or
             (direction == "bearish" and this_week_swept == "high")
         )
+        adverse_sweep = (
+            (direction == "bullish" and this_week_swept == "high") or
+            (direction == "bearish" and this_week_swept == "low")
+        )
         grade = "A+" if sweep_agrees else "A"
 
         results.append({
@@ -95,6 +99,7 @@ def evaluate_pair(symbol: str):
             "trend_established_time": trend_event["confirming_time"] if trend_event else None,
             "trend_aligned": trend_aligned,
             "rule_name": rule_name,
+            "adverse_sweep": adverse_sweep,
             "shape": shape_letter,
             "rejection_price": rejection_price,
             "rejection_time": rejection_time,
