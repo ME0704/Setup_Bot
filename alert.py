@@ -24,7 +24,7 @@ def format_message(result: dict) -> str:
     digits = result["digits"]
     is_bullish = result["bias"] == "bullish"
 
-    arrow = "🟢▲" if is_bullish else "🔴▼"
+    arrow = "▲" if is_bullish else "▼"
     side = "BUY" if is_bullish else "SELL"
 
     if result["rule_name"] == "Key level in range":
@@ -71,21 +71,21 @@ def format_message(result: dict) -> str:
     if result.get("adverse_sweep"):
         if is_bullish:
             lines.append(
-                f"⚠️ Previous day's HIGH ({_fmt(result['prior_day_high'], digits)}) was already swept "
+                f" Previous day's HIGH ({_fmt(result['prior_day_high'], digits)}) was already swept "
                 f"before this setup — use confirmation entry, not a blind limit order."
             )
         else:
             lines.append(
-                f"⚠️ Previous day's LOW ({_fmt(result['prior_day_low'], digits)}) was already swept "
+                f" Previous day's LOW ({_fmt(result['prior_day_low'], digits)}) was already swept "
                 f"before this setup — use confirmation entry, not a blind limit order."
             )
 
     if result["swept"] is not None:
-        lines.append("🔥 Liquidity sweep confirmed (A+)")
+        lines.append(" Liquidity sweep confirmed (A+)")
 
     lines += [
         "",
-        "⚠️ Not an entry signal. Bias only — wait for your entry model.",
+        " Not an entry signal. Bias only — wait for your entry model.",
         "",
         f"Sent {timeutil.format_eat_sent(now_eat)} EAT",
     ]
