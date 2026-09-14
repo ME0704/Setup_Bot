@@ -71,13 +71,13 @@ def format_message(result: dict) -> str:
     if result.get("adverse_sweep"):
         if is_bullish:
             lines.append(
-                f" Previous day's HIGH ({_fmt(result['prior_day_high'], digits)}) was already swept "
-                f"before this setup — use confirmation entry, not a blind limit order."
+                f" Previous day's HIGH ({_fmt(result['prior_day_high'], digits)}) was taken out "
+                f"before this setup:- use confirmation entry, not a blind limit order."
             )
         else:
             lines.append(
-                f" Previous day's LOW ({_fmt(result['prior_day_low'], digits)}) was already swept "
-                f"before this setup — use confirmation entry, not a blind limit order."
+                f" Previous day's LOW ({_fmt(result['prior_day_low'], digits)}) was taken out "
+                f"before this setup:- use confirmation entry, not a blind limit order."
             )
 
     if result["swept"] is not None:
@@ -85,7 +85,7 @@ def format_message(result: dict) -> str:
 
     lines += [
         "",
-        " Not an entry signal. Bias only — wait for your entry model.",
+        " Not an entry signal. Bias only, wait for your entry model.",
         "",
         f"Sent {timeutil.format_eat_sent(now_eat)} EAT",
     ]
