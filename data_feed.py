@@ -7,13 +7,20 @@ import MetaTrader5 as mt5
 import pandas as pd
 
 
-def connect():
-    """Call once at startup. Must have MT5 terminal open and logged in."""
-    if not mt5.initialize():
+def connect(terminal_path=None):
+    """Call once at startup. Must have MT5 terminal open and logged in.
+    Pass terminal_path when running multiple MT5 installs on one PC, so
+    this connects to the RIGHT broker's terminal, not whichever one it
+    finds first."""
+    if terminal_path:
+        ok = mt5.initialize(path=terminal_path)
+    else:
+        ok = mt5.initialize()
+    if not ok:
         raise RuntimeError(f"MT5 initialize() failed: {mt5.last_error()}")
-    print("[data_feed] Connected to MT5 terminal.")
+    print(f"[data_feed] Connected to MT5 terminal{' at ' + terminal_path if terminal_path else ''}.")
 
-
+    
 def shutdown():
     mt5.shutdown()
 

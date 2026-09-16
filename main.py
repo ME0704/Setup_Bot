@@ -51,7 +51,7 @@ def signature_for(result):
 
 
 def run():
-    data_feed.connect()
+    data_feed.connect(terminal_path=r"C:\Program Files\MetaTrader 5\terminal64.exe")
     state = load_state()
 
     print(f"[main] Watching {len(PAIRS)} pairs. Checking every {POLL_INTERVAL_SECONDS}s.")
