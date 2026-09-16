@@ -1,19 +1,27 @@
 """
 Formats and sends the Telegram alert, and logs it to CSV for review.
+Includes active licensing checks, per-pair subscriptions, and anti-piracy content protection.
 """
 
 import os
 import csv
+import json
 from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
-from config import TELEGRAM_TOKEN_ENV, TELEGRAM_CHAT_ID_ENV, LOG_FILE
+import config
 import timeutil
 
 load_dotenv()
 
-TOKEN = os.getenv(TELEGRAM_TOKEN_ENV)
-CHAT_ID = os.getenv(TELEGRAM_CHAT_ID_ENV)
+# Telegram Credentials
+TOKEN = os.getenv(getattr(config, "TELEGRAM_TOKEN_ENV", "TELEGRAM_BOT_TOKEN"), "")
+ADMIN_ID = str(getattr(config, "ADMIN_CHAT_ID", os.getenv("ADMIN_CHAT_ID", ""))).strip()
+FALLBACK_CHAT_ID = os.getenv(getattr(config, "TELEGRAM_CHAT_ID_ENV", "TELEGRAM_CHAT_ID"), "")
+LOG_FILE = getattr(config, "LOG_FILE", "alerts.csv")
+
+SUBS_FILE = getattr(config, "SUBSCRIPTIONS_FILE", "subscriptions.json")
+USERS_FILE = getattr(config, "USERS_DB", "users.json")
 
 
 def _fmt(value: float, digits: int) -> str:
@@ -93,31 +101,124 @@ def format_message(result: dict) -> str:
     return "\n".join(lines)
 
 
-def send_telegram_alert(message: str):
-    if not TOKEN or not CHAT_ID:
+def _extract_symbol_from_message(message: str) -> str:
+    """Parses symbol from header: '▲ BUY · EURUSD · D1→H4'"""
+    try:
+        header = message.strip().split("\n")[0]
+        parts = header.split("·")
+        if len(parts) >= 2:
+            return parts[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _get_active_subscribers_for_symbol(symbol: str) -> list:
+    """Finds unexpired subscribers opted into this specific Forex pair."""
+    recipients = set()
+
+    # 1. Identify all users with valid, unexpired licenses
+    valid_users = set()
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                users_db = json.load(f)
+            now = datetime.now()
+            for uid, udata in users_db.items():
+                exp_str = udata.get("expiry")
+                if exp_str:
+                    try:
+                        if now < datetime.fromisoformat(exp_str):
+                            valid_users.add(str(uid))
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[ALERT WARNING] Error reading users database: {e}")
+
+    # 2. Check pair selection in subscriptions.json
+    if os.path.exists(SUBS_FILE):
+        try:
+            with open(SUBS_FILE, "r") as f:
+                subs_db = json.load(f)
+            for uid, pairs in subs_db.items():
+                if str(uid) in valid_users and symbol in pairs:
+                    recipients.add(str(uid))
+        except Exception as e:
+            print(f"[ALERT WARNING] Error reading subscriptions database: {e}")
+
+    # 3. Always include Admin
+    if ADMIN_ID:
+        recipients.add(ADMIN_ID)
+
+    # 4. Fallback to .env chat IDs if databases are empty (initial boot)
+    if not recipients and FALLBACK_CHAT_ID:
+        for cid in FALLBACK_CHAT_ID.split(","):
+            cid = cid.strip()
+            if cid:
+                recipients.add(cid)
+
+    return list(recipients)
+
+
+def send_telegram_alert(message: str, symbol: str = None):
+    """
+    Resolves active subscribers for the asset and broadcasts the alert.
+    If symbol is omitted, it extracts it directly from the message header.
+    """
+    if not TOKEN:
         raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing. Check your .env file."
+            "TELEGRAM_BOT_TOKEN missing. Check your .env or config settings."
         )
-    chat_ids = [cid.strip() for cid in CHAT_ID.split(",") if cid.strip()]
-    return send_to_chat_ids(message, chat_ids)
+
+    if not symbol:
+        symbol = _extract_symbol_from_message(message)
+
+    if symbol:
+        target_chat_ids = _get_active_subscribers_for_symbol(symbol)
+    else:
+        target_chat_ids = [ADMIN_ID] if ADMIN_ID else []
+
+    if not target_chat_ids:
+        print(f"[ALERT SKIP] No active subscribers found for {symbol or 'General'}")
+        return []
+
+    return send_to_chat_ids(message, target_chat_ids)
 
 
 def send_to_chat_ids(message: str, chat_ids):
+    """Dispatches message individually with anti-piracy content protection."""
     if not TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN missing. Check your .env file.")
+    
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     responses = []
+    
     for chat_id in chat_ids:
-        resp = requests.post(url, data={"chat_id": chat_id, "text": message})
-        resp.raise_for_status()
-        responses.append(resp.json())
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "protect_content": True  # Anti-piracy: Blocks forwarding, saving, copying
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                responses.append(resp.json())
+            else:
+                print(f"[ALERT ERROR] Failed delivery to {chat_id}: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            print(f"[ALERT EXCEPTION] Could not send to {chat_id}: {e}")
+
     return responses
+
 
 def log_alert(result: dict):
     file_exists = os.path.isfile(LOG_FILE)
-    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+    if os.path.dirname(LOG_FILE):
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        
     digits = result["digits"]
     lo, hi = result["bos_range"] if result["bos_range"] else (None, None)
+    
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:

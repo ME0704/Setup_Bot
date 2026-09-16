@@ -1,1 +1,15 @@
+# Environments
 .env
+__pycache__/
+*.pyc
+
+# Database/Logs
+users.json
+keys.json
+subscriptions.json
+alert_history.json
+*.log
+
+# Archives
+*.rar
+*.zip

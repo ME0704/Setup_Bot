@@ -3,6 +3,25 @@ Central configuration for the bot.
 Tune thresholds here as you test — don't touch logic files for tuning.
 """
 
+
+# --- ADMIN & SAAS LICENSING CONFIGURATION ---
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# Telegram Token Resolution
+_token_env_key = globals().get("TELEGRAM_TOKEN_ENV", "TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv(_token_env_key, "")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "")
+
+# Local Database Files
+ALERT_HISTORY_FILE = "alert_history.json"
+SUBSCRIPTIONS_FILE = "subscriptions.json"
+USERS_DB = "users.json"      # Tracks user license expiration timestamps
+KEYS_DB = "keys.json"        # Stores generated license codes
+
+
 # Pairs the bot watches. Must match your MT5 Market Watch symbol names exactly.
 # Majors + crosses use the .m suffix to match your broker's naming — VERIFY
 # each one exists in your Market Watch (Ctrl+U in MT5) before relying on it;
