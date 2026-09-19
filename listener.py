@@ -4,10 +4,10 @@ import time
 import secrets
 from datetime import datetime, timedelta
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 import config
 
-# ROBUST TOKEN RESOLUTION:
+# Token resolution
 TOKEN = (
     getattr(config, "TELEGRAM_BOT_TOKEN", None)
     or os.getenv("TELEGRAM_BOT_TOKEN")
@@ -15,18 +15,35 @@ TOKEN = (
 )
 
 if not TOKEN:
-    raise ValueError(
-        "Telegram Bot Token not found! Ensure TELEGRAM_BOT_TOKEN is set in your .env file."
-    )
+    raise ValueError("Telegram Bot Token not found! Ensure TELEGRAM_BOT_TOKEN is set in your .env file.")
 
 bot = telebot.TeleBot(TOKEN)
 
-# Dynamic symbol resolution (supports PAIRS or SYMBOLS)
+# Dynamic symbol resolution
 FOREX_PAIRS = getattr(config, "PAIRS", getattr(config, "SYMBOLS", []))
 
-# Temporary in-memory draft selections
+# Memory buffers
 user_drafts = {}
-failed_attempts = {}  # { chat_id: {"attempts": int, "lockout_until": datetime} }
+failed_attempts = {}
+
+# --- ADMIN & PAYMENT DETAILS (UPDATE THESE) ---
+ADMIN_TELEGRAM_USERNAME = "emmas_wrld"  # Admin handle without '@'
+MOBILE_MONEY_DETAILS = "MTN / Airtel: +256 700 000 000 (Name: Your Name)"
+USDT_TRC20_WALLET = "TYOURTRC20WALLETADDRESSHERE"
+
+# --- REGISTER TELEGRAM MENU BUTTON ---
+def register_bot_commands():
+    """Adds the permanent 'Menu' button next to the chat text bar."""
+    try:
+        commands = [
+            BotCommand("start", "Main Dashboard & Overview"),
+            BotCommand("pairs", "Configure Monitored Pairs"),
+            BotCommand("account", "Check Subscription Status"),
+            BotCommand("help", "Pricing & Payment Guide")
+        ]
+        bot.set_my_commands(commands)
+    except Exception as e:
+        print(f"[WARNING] Could not register menu commands: {e}")
 
 # --- DATABASE HELPERS ---
 def load_json(filepath: str) -> dict:
@@ -73,15 +90,15 @@ def build_main_dashboard(has_access: bool) -> InlineKeyboardMarkup:
         )
     else:
         markup.row(
-            InlineKeyboardButton("Plans & Pricing", callback_data="nav_plans"),
-            InlineKeyboardButton("Payment Methods", callback_data="nav_payment_methods")
+            InlineKeyboardButton("1. Plans & Pricing", callback_data="nav_plans"),
+            InlineKeyboardButton("2. Payment Methods", callback_data="nav_payment_methods")
         )
         markup.row(
-            InlineKeyboardButton("Enter License Key", callback_data="nav_enter_key"),
+            InlineKeyboardButton("3. Enter License Key", callback_data="nav_enter_key"),
             InlineKeyboardButton("My Status", callback_data="nav_account")
         )
         markup.add(
-            InlineKeyboardButton("Contact Admin / Submit Receipt", url="https://t.me/emmas_wrld")
+            InlineKeyboardButton("Contact Admin / Submit Proof", url=f"https://t.me/{ADMIN_TELEGRAM_USERNAME}")
         )
     return markup
 
@@ -89,7 +106,6 @@ def build_pairs_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     selected_set = user_drafts.get(chat_id, set())
     markup = InlineKeyboardMarkup()
     
-    # 2-column layout tailored for Forex currency pairs
     for i in range(0, len(FOREX_PAIRS), 2):
         row = []
         for j in range(2):
@@ -107,17 +123,13 @@ def build_pairs_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     markup.add(InlineKeyboardButton("Back to Dashboard", callback_data="nav_home"))
     return markup
 
-# --- ADMIN COMMAND: 16-CHAR BOUND KEY GENERATOR ---
+# --- ADMIN KEY GENERATOR ---
 @bot.message_handler(commands=['genkey'])
 def generate_key(message):
     chat_id = str(message.chat.id)
     if chat_id != str(config.ADMIN_CHAT_ID):
         return
 
-    # Syntax:
-    # /genkey 30              -> Open key for 30 days
-    # /genkey 30 @username    -> Bound strictly to that Telegram username
-    # /genkey 30 123456789    -> Bound strictly to that numeric Telegram ID
     parts = message.text.split()
     days = 30
     assigned_target = None
@@ -126,24 +138,19 @@ def generate_key(message):
         try:
             days = int(parts[1])
         except ValueError:
-            bot.reply_to(
-                message,
-                "Usage: `/genkey <days> [@username or chat_id]`\nExample: `/genkey 30 @trader_dan`",
-                parse_mode="Markdown"
-            )
+            bot.reply_to(message, "Usage: `/genkey <days> [@username or chat_id]`", parse_mode="Markdown")
             return
 
     if len(parts) >= 3:
         assigned_target = parts[2].replace("@", "").strip().lower()
 
-    # Generate 16-character segmented enterprise code: MSR-XXXX-XXXX-XXXX
     raw = secrets.token_hex(6).upper()
     new_key = f"MSR-{raw[0:4]}-{raw[4:8]}-{raw[8:12]}"
 
     keys_db = load_json(config.KEYS_DB)
     keys_db[new_key] = {
         "days": days,
-        "assigned_to": assigned_target,  # None, lowercase username, or chat_id
+        "assigned_to": assigned_target,
         "used": False,
         "used_by": None,
         "created_at": datetime.now().isoformat()
@@ -151,18 +158,13 @@ def generate_key(message):
     save_json(config.KEYS_DB, keys_db)
 
     target_text = f"Bound to: `@{assigned_target}`" if assigned_target else "Status: `Unbound (Any account can activate)`"
-
     bot.reply_to(
         message,
-        f"*MS RADAR LICENSE KEY GENERATED*\n\n"
-        f"Key: `{new_key}`\n"
-        f"Duration: `{days} Days`\n"
-        f"{target_text}\n\n"
-        f"Send this exact code to the client.",
+        f"*MS RADAR LICENSE GENERATED*\n\nKey: `{new_key}`\nDuration: `{days} Days`\n{target_text}",
         parse_mode="Markdown"
     )
 
-# --- USER ACTIVATION (IDENTITY VALIDATION & ANTI-BRUTE-FORCE) ---
+# --- USER ACTIVATION ---
 @bot.message_handler(commands=['activate'])
 def activate_command(message):
     chat_id = str(message.chat.id)
@@ -177,48 +179,33 @@ def process_secure_activation(message, entered_key: str):
     username = (message.from_user.username or "").strip().lower()
     now = datetime.now()
 
-    # 1. Anti-Brute-Force Rate Limiting
     if chat_id in failed_attempts:
         lockout = failed_attempts[chat_id].get("lockout_until")
         if lockout and now < lockout:
             wait_min = int((lockout - now).total_seconds() / 60) + 1
-            bot.send_message(
-                chat_id,
-                f"Account temporarily locked due to repeated failed attempts. Please retry in {wait_min} minutes."
-            )
+            bot.send_message(chat_id, f"Account locked due to failed attempts. Retry in {wait_min} minutes.")
             return
 
     keys_db = load_json(config.KEYS_DB)
-
-    # 2. Key Existence Check
     if entered_key not in keys_db:
         record_failed_attempt(chat_id)
         bot.send_message(chat_id, "Invalid activation key. Please verify the code and try again.")
         return
 
     key_record = keys_db[entered_key]
-
-    # 3. Double-Spend Verification
     if key_record["used"]:
         bot.send_message(chat_id, "This license key has already been redeemed.")
         return
 
-    # 4. Identity Binding Verification
     bound_target = key_record.get("assigned_to")
     if bound_target:
-        # Check against both Telegram username and numeric chat_id
         if bound_target != username and bound_target != chat_id:
-            bot.send_message(
-                chat_id,
-                "Unauthorized: This license key is cryptographically assigned to another Telegram account."
-            )
+            bot.send_message(chat_id, "Unauthorized: This key is cryptographically assigned to another Telegram account.")
             return
 
-    # Reset failed counter upon successful validation
     if chat_id in failed_attempts:
         del failed_attempts[chat_id]
 
-    # 5. Apply Subscription
     days_to_add = key_record["days"]
     users = load_json(config.USERS_DB)
     current_expiry = now
@@ -239,7 +226,6 @@ def process_secure_activation(message, entered_key: str):
     }
     save_json(config.USERS_DB, users)
 
-    # Mark key as consumed
     key_record["used"] = True
     key_record["used_by"] = chat_id
     key_record["redeemed_by_username"] = username or None
@@ -250,10 +236,10 @@ def process_secure_activation(message, entered_key: str):
     markup.add(InlineKeyboardButton("Configure Pairs", callback_data="nav_pairs"))
     bot.send_message(
         chat_id,
-        f"✅ *MS RADAR ACCESS GRANTED*\n\n"
+        f"✅ *MS RADAR ACCESS ACTIVATED*\n\n"
         f"• Duration: `{days_to_add} Days`\n"
-        f"• Valid Until: `{new_expiry.strftime('%Y-%m-%d %H:%M EAT')}`\n\n"
-        f"Tap below to select your active Forex pairs.",
+        f"• Expiration: `{new_expiry.strftime('%Y-%m-%d %H:%M EAT')}`\n\n"
+        f"Tap below to select your monitored forex pairs.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -267,12 +253,9 @@ def record_failed_attempt(chat_id: str):
 
     if failed_attempts[chat_id]["attempts"] >= 3:
         failed_attempts[chat_id]["lockout_until"] = now + timedelta(minutes=30)
-        bot.send_message(
-            chat_id,
-            "Too many failed activation attempts. You have been locked out for 30 minutes."
-        )
+        bot.send_message(chat_id, "Too many failed activation attempts. You are locked out for 30 minutes.")
 
-# --- ANTI-PIRACY & GENERAL COMMANDS ---
+# --- PRIVATE CHAT LOCKDOWN ---
 @bot.message_handler(func=lambda message: message.chat.type != 'private')
 def block_groups(message):
     try:
@@ -280,7 +263,8 @@ def block_groups(message):
     except Exception:
         pass
 
-@bot.message_handler(commands=['start', 'menu'])
+# --- CORE DASHBOARD & INTRO ---
+@bot.message_handler(commands=['start', 'menu', 'help'])
 def show_home(message):
     if message.chat.type != 'private':
         return
@@ -288,15 +272,32 @@ def show_home(message):
     is_active = check_access(chat_id)
     status_text = "ACTIVE" if is_active else "INACTIVE / EXPIRED"
 
-    text = (
-        "*MS RADAR — FOREX STRUCTURE & BIAS*\n"
-        "Institutional market structure alerts (D1 → H4).\n\n"
-        f"• Account Status: `{status_text}`\n"
-        f"• Expiry: `{get_expiry_str(chat_id)}`\n\n"
-        "Select an option below:"
-    )
-    bot.send_message(chat_id, text, reply_markup=build_main_dashboard(is_active), parse_mode="Markdown")
+    if is_active:
+        text = (
+            "*MS RADAR — ACTIVE DASHBOARD*\n\n"
+            "Your institutional alert engine is online and monitoring your selected pairs.\n\n"
+            f"• *Account Status:* `{status_text}`\n"
+            f"• *Valid Until:* `{get_expiry_str(chat_id)}`\n\n"
+            "Tap *Configure Pairs* below to update your monitored watchlist, or *My Account* to review your subscription."
+        )
+    else:
+        text = (
+            "*MS RADAR — INSTITUTIONAL FOREX INTELLIGENCE*\n\n"
+            "Welcome to MS Radar. This system tracks institutional market structure across currency pairs, "
+            "filtering market noise using multi-timeframe breakout models (D1 → H4).\n\n"
+            "*Core Services Provided:*\n"
+            "• Real-time D1 → H4 breakout and change-of-character alerts\n"
+            "• Liquidity sweep detection (A+ grade trade qualifications)\n"
+            "• Adverse extreme warnings (prior-day high/low invalidation)\n"
+            "• Fully customizable per-pair alert filters\n\n"
+            f"*Account Overview:*\n"
+            f"• Status: `{status_text}`\n"
+            f"• Access Until: `{get_expiry_str(chat_id)}`\n\n"
+            "Follow the steps below to subscribe or configure your watchlist:"
+        )
 
+    bot.send_message(chat_id, text, reply_markup=build_main_dashboard(is_active), parse_mode="Markdown")
+    
 @bot.message_handler(commands=['pairs'])
 def open_pairs_cmd(message):
     if message.chat.type != 'private':
@@ -309,38 +310,79 @@ def open_pairs_cmd(message):
     user_drafts[chat_id] = set(subs.get(chat_id, []))
     bot.send_message(
         chat_id,
-        "*FOREX PAIR CONFIGURATION*\nTap items to toggle, then press *Save Selection*.",
+        "*FOREX PAIR CONFIGURATION*\nTap any pair to toggle alerts on or off, then tap *Save Selection*.",
         reply_markup=build_pairs_keyboard(chat_id),
         parse_mode="Markdown"
     )
 
+@bot.message_handler(commands=['account'])
+def open_account_cmd(message):
+    if message.chat.type != 'private':
+        return
+    chat_id = str(message.chat.id)
+    cb_account_direct(chat_id)
+
+def cb_account_direct(chat_id: str, message_id: int = None):
+    subs = load_json(config.SUBSCRIPTIONS_FILE)
+    pairs = subs.get(chat_id, [])
+    pair_str = "\n".join([f"• {p}" for p in pairs]) if pairs else "_No pairs selected._"
+
+    text = (
+        "*ACCOUNT STATUS*\n\n"
+        f"• *User ID:* `{chat_id}`\n"
+        f"• *Access:* `{'ACTIVE' if check_access(chat_id) else 'EXPIRED'}`\n"
+        f"• *Valid Until:* `{get_expiry_str(chat_id)}`\n\n"
+        f"*Monitored Pairs ({len(pairs)}):*\n{pair_str}"
+    )
+    markup = InlineKeyboardMarkup()
+    if check_access(chat_id):
+        markup.add(InlineKeyboardButton("Edit Pairs", callback_data="nav_pairs"))
+    else:
+        markup.add(InlineKeyboardButton("View Plans & Renew", callback_data="nav_plans"))
+    markup.add(InlineKeyboardButton("Back to Dashboard", callback_data="nav_home"))
+
+    if message_id:
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
+
 # --- CALLBACK ROUTERS ---
 @bot.callback_query_handler(func=lambda call: call.data == "nav_home")
 def cb_home(call):
+    bot.answer_callback_query(call.id)
     chat_id = str(call.message.chat.id)
     is_active = check_access(chat_id)
     status_text = "ACTIVE" if is_active else "INACTIVE / EXPIRED"
+
     text = (
-        "*MS RADAR — FOREX STRUCTURE & BIAS*\n"
-        "Institutional market structure alerts (D1 → H4).\n\n"
-        f"• Account Status: `{status_text}`\n"
-        f"• Expiry: `{get_expiry_str(chat_id)}`\n\n"
-        "Select an option below:"
+        "*MS RADAR — INSTITUTIONAL FOREX INTELLIGENCE*\n\n"
+        "Welcome to MS Radar. This system tracks institutional market structure across currency pairs, "
+        "filtering market noise using multi-timeframe breakout models (D1 → H4).\n\n"
+        "*Core Services Provided:*\n"
+        "• Real-time D1 → H4 breakout alerts\n"
+        "• Liquidity sweep detection (A+ grade trade qualifications)\n"
+        "• Adverse extreme warnings\n"
+        "• Individual pair watchlist customization\n\n"
+        f"*Account Overview:*\n"
+        f"• Status: `{status_text}`\n"
+        f"• Access Until: `{get_expiry_str(chat_id)}`\n\n"
+        "Follow the steps below to subscribe or configure your watchlist:"
     )
     bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=build_main_dashboard(is_active), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "nav_plans")
 def cb_plans(call):
+    bot.answer_callback_query(call.id)
     text = (
-        "*MS RADAR SUBSCRIPTION PLANS*\n\n"
-        "*1. Monthly Pass (30 Days)*\n"
+        "*MS RADAR — PRICING PLANS*\n\n"
+        "*1. Monthly License (30 Days)*\n"
         "• Full access to all monitored Forex pairs\n"
-        "• Real-time D1 → H4 institutional alerts\n"
+        "• Real-time D1 → H4 structure breakout alerts\n"
         "• Liquidity sweeps & confirmation warnings\n\n"
-        "*2. Quarterly Pass (90 Days)*\n"
-        "• 3 months uninterrupted delivery\n"
+        "*2. Quarterly License (90 Days)*\n"
+        "• 3 months of uninterrupted signals\n"
         "• Priority support & bias updates\n\n"
-        "Tap *Payment Methods* below to proceed."
+        "Select your preferred payment method below to get started:"
     )
     markup = InlineKeyboardMarkup()
     markup.row(
@@ -351,54 +393,70 @@ def cb_plans(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "nav_payment_methods")
 def cb_payment_methods(call):
-    text = "*SELECT PAYMENT METHOD*\n\nChoose your preferred payment method below:"
+    bot.answer_callback_query(call.id)
+    text = (
+        "*STEP 2: CHOOSE PAYMENT METHOD*\n\n"
+        "Select an option below to view transfer details and payment instructions:"
+    )
     markup = InlineKeyboardMarkup()
     markup.row(
         InlineKeyboardButton("Mobile Money", callback_data="pay_momo"),
         InlineKeyboardButton("USDT (TRC20)", callback_data="pay_usdt")
     )
     markup.row(
-        InlineKeyboardButton("Enter License Key", callback_data="nav_enter_key"),
+        InlineKeyboardButton("I Already Have a Code", callback_data="nav_enter_key"),
         InlineKeyboardButton("Back", callback_data="nav_home")
     )
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "pay_momo")
 def cb_momo(call):
+    bot.answer_callback_query(call.id)
     text = (
-        "*MOBILE MONEY PAYMENT*\n\n"
-        f"1. Send payment to:\n`{MOBILE_MONEY_DETAILS}`\n\n"
-        "2. Submit your transaction ID or screenshot to admin.\n\n"
-        "3. You will receive an activation code formatted like `MSR-XXXX-XXXX-XXXX`."
+        "*MOBILE MONEY PAYMENT GUIDE*\n\n"
+        "*Step 1: Transfer Funds*\n"
+        f"Send the fee to the account below:\n`{MOBILE_MONEY_DETAILS}`\n\n"
+        "*Step 2: Save Your Receipt*\n"
+        "Keep the transaction ID or take a screenshot of the confirmation SMS.\n\n"
+        "*Step 3: Submit Payment Proof*\n"
+        "Tap the button below to message admin directly with your proof.\n\n"
+        "*Step 4: Activate*\n"
+        "Admin will send your activation code. Tap *Enter License Key* to start receiving alerts."
     )
     markup = InlineKeyboardMarkup()
     markup.row(
-        InlineKeyboardButton("Submit to Admin", url=f"https://t.me/emmas_wrld"),
+        InlineKeyboardButton("Submit Payment Proof", url=f"https://t.me/{ADMIN_TELEGRAM_USERNAME}"),
         InlineKeyboardButton("Enter License Key", callback_data="nav_enter_key")
     )
-    markup.add(InlineKeyboardButton("Back", callback_data="nav_payment_methods"))
+    markup.add(InlineKeyboardButton("Back to Payment Methods", callback_data="nav_payment_methods"))
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "pay_usdt")
 def cb_usdt(call):
+    bot.answer_callback_query(call.id)
     text = (
-        "*USDT (TRC20) PAYMENT*\n\n"
+        "*USDT (TRC20) PAYMENT GUIDE*\n\n"
         "*Network:* `TRON (TRC20)`\n"
-        "*Wallet Address (Tap to copy):*\n"
+        "*Deposit Address (Tap to Copy):*\n"
         f"`{USDT_TRC20_WALLET}`\n\n"
-        "⚠️ *Notice:* Send ONLY via TRC20 network. Other networks will lead to loss of funds.\n\n"
-        "After transfer, submit your TxID to admin for your activation code."
+        "⚠️ *Notice:* Transfer strictly via the TRC20 network. Any other network will result in unrecoverable funds.\n\n"
+        "*Next Steps:*\n"
+        "1. Complete the transfer in your crypto wallet.\n"
+        "2. Copy the Transaction Hash (TxID) or screenshot.\n"
+        "3. Tap *Submit TxID to Admin* below to confirm.\n"
+        "4. You will receive an activation code formatted like `MSR-XXXX-XXXX-XXXX`."
     )
     markup = InlineKeyboardMarkup()
     markup.row(
-        InlineKeyboardButton("Submit TxID", url=f"https://t.me/emmas_wrld"),
+        InlineKeyboardButton("Submit TxID to Admin", url=f"https://t.me/{ADMIN_TELEGRAM_USERNAME}"),
         InlineKeyboardButton("Enter License Key", callback_data="nav_enter_key")
     )
-    markup.add(InlineKeyboardButton("Back", callback_data="nav_payment_methods"))
+    markup.add(InlineKeyboardButton("Back to Payment Methods", callback_data="nav_payment_methods"))
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "nav_enter_key")
 def cb_prompt_key(call):
+    bot.answer_callback_query(call.id)
     msg = bot.send_message(
         call.message.chat.id,
         "Please reply with your *license code* (e.g., `MSR-A1B2-C3D4-E5F6`):",
@@ -408,32 +466,15 @@ def cb_prompt_key(call):
         msg,
         lambda m: process_secure_activation(m, m.text.strip().replace("/activate", "").strip().upper())
     )
-    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "nav_account")
 def cb_account(call):
-    chat_id = str(call.message.chat.id)
-    subs = load_json(config.SUBSCRIPTIONS_FILE)
-    pairs = subs.get(chat_id, [])
-    pair_str = "\n".join([f"• {p}" for p in pairs]) if pairs else "_No pairs selected._"
-
-    text = (
-        "*ACCOUNT STATUS*\n\n"
-        f"• *User ID:* `{chat_id}`\n"
-        f"• *Access:* `{'ACTIVE' if check_access(chat_id) else 'EXPIRED'}`\n"
-        f"• *Valid Until:* `{get_expiry_str(chat_id)}`\n\n"
-        f"*Active Monitored Pairs ({len(pairs)}):*\n{pair_str}"
-    )
-    markup = InlineKeyboardMarkup()
-    if check_access(chat_id):
-        markup.add(InlineKeyboardButton("Edit Pairs", callback_data="nav_pairs"))
-    else:
-        markup.add(InlineKeyboardButton("Renew", callback_data="nav_plans"))
-    markup.add(InlineKeyboardButton("Back", callback_data="nav_home"))
-    bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
+    cb_account_direct(str(call.message.chat.id), call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "nav_pairs")
 def cb_pairs_menu(call):
+    bot.answer_callback_query(call.id)
     chat_id = str(call.message.chat.id)
     if not check_access(chat_id):
         cb_home(call)
@@ -441,7 +482,7 @@ def cb_pairs_menu(call):
     subs = load_json(config.SUBSCRIPTIONS_FILE)
     user_drafts[chat_id] = set(subs.get(chat_id, []))
     bot.edit_message_text(
-        "*FOREX PAIR CONFIGURATION*\nTap items to toggle, then press *Save Selection*.",
+        "*FOREX PAIR CONFIGURATION*\nTap any pair to toggle alerts on or off, then tap *Save Selection*.",
         chat_id,
         call.message.message_id,
         reply_markup=build_pairs_keyboard(chat_id),
@@ -451,7 +492,9 @@ def cb_pairs_menu(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("tog_"))
 def cb_toggle(call):
     chat_id = str(call.message.chat.id)
-    if not check_access(chat_id): return
+    if not check_access(chat_id):
+        bot.answer_callback_query(call.id)
+        return
     idx = int(call.data.split("_")[1])
     pair = FOREX_PAIRS[idx]
     if chat_id not in user_drafts:
@@ -461,18 +504,24 @@ def cb_toggle(call):
     else:
         user_drafts[chat_id].add(pair)
     bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=build_pairs_keyboard(chat_id))
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data in ["act_select_all", "act_clear_all"])
 def cb_bulk(call):
     chat_id = str(call.message.chat.id)
-    if not check_access(chat_id): return
+    if not check_access(chat_id):
+        bot.answer_callback_query(call.id)
+        return
     user_drafts[chat_id] = set(FOREX_PAIRS) if call.data == "act_select_all" else set()
     bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=build_pairs_keyboard(chat_id))
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "act_save")
 def cb_save(call):
     chat_id = str(call.message.chat.id)
-    if not check_access(chat_id): return
+    if not check_access(chat_id):
+        bot.answer_callback_query(call.id)
+        return
     selected = list(user_drafts.get(chat_id, []))
     subs = load_json(config.SUBSCRIPTIONS_FILE)
     subs[chat_id] = selected
@@ -482,9 +531,12 @@ def cb_save(call):
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Back to Dashboard", callback_data="nav_home"))
     bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id, text="Saved!")
 
 if __name__ == "__main__":
-    print("[READY] MS Radar (Forex) Secure Listener online...")
+    print("[INIT] Registering Telegram command menu...")
+    register_bot_commands()
+    print("[READY] MS Radar (Forex) Listener online. Polling...")
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
