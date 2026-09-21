@@ -1,17 +1,12 @@
 """
-Entry point. Run this with:  python main.py
+Entry point for MS Radar (Forex).
+Run this with:  python main.py
 
 Loop logic:
-- Every POLL_INTERVAL_SECONDS, re-check every pair in config.PAIRS
-- evaluate_pair() now returns a LIST of trade ideas (0, 1, or 2 — one per
-  direction), since we no longer gate on the Daily trend.
-- Alert de-duplication is PERSISTED TO DISK (logs/alert_state.json), keyed
-  per symbol+direction to the exact (rejection_time, bos_time) pair. This
-  means restarting the bot can never re-send an alert you already got, and
-  a symbol can carry an active buy idea and sell idea at the same time,
-  tracked independently.
-- Alerts are routed ONLY to chats subscribed to that specific pair (via
-  /pairs in listener.py), not blasted to everyone in .env.
+- Periodically checks every pair in config.PAIRS.
+- Deduplicates alerts via logs/alert_state.json.
+- Routes alerts dynamically to active subscribers (users.json + subscriptions.json)
+  and admin via alert.send_telegram_alert.
 """
 
 import time
@@ -21,10 +16,8 @@ from datetime import datetime, timezone
 
 import data_feed
 import bias_engine
-import alert
-import user_settings
 import bias_engine_weekly
-import supabase_settings
+import alert
 from config import PAIRS, POLL_INTERVAL_SECONDS
 
 STATE_FILE = "logs/alert_state.json"
@@ -70,27 +63,18 @@ def run():
                         sig = signature_for(result)
 
                         if state.get(key) == sig:
-                            continue  # already alerted this EXACT setup
+                            continue  # Already alerted this exact setup
 
                         message = alert.format_message(result)
-                        alert.log_alert(result)  # always log, regardless of subscribers
+                        alert.log_alert(result)
 
-                        subscribers = set(user_settings.get_subscribers_for_pair(symbol))
-                        try:
-                            subscribers |= set(supabase_settings.get_subscribers_for_pair(symbol))
-                        except Exception as sb_error:
-                            print(f"[main] Supabase lookup failed (using local subscribers only): {sb_error}")
-                        subscribers = list(subscribers)  
-                        if subscribers:
-                            alert.send_to_chat_ids(message, subscribers)
-                        else:
-                            print(f"[main] {symbol} setup found but no subscribers — not sent. "
-                                  f"(Send /pairs to the bot to subscribe.)")
+                        # Dispatch via alert.py (handles .m/.std suffixes, users.json, and subscriptions.json)
+                        alert.send_telegram_alert(message, symbol=symbol)
 
                         state[key] = sig
                         save_state(state)
 
-                        print(f"[{datetime.now(timezone.utc)}] ALERT SENT: {symbol} - {result['bias']}")
+                        print(f"[{datetime.now(timezone.utc)}] PROCESSED SETUP: {symbol} - {result['bias']}")
 
                 except Exception as pair_error:
                     print(f"[main] Error processing {symbol}: {pair_error}")

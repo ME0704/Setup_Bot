@@ -190,7 +190,7 @@ def send_to_chat_ids(message: str, chat_ids):
         payload = {
             "chat_id": chat_id,
             "text": message,
-            "protect_content": False  # Allows screenshots/forwarding for tester reviews
+            "protect_content": False  
         }
         try:
             resp = requests.post(url, json=payload, timeout=10)
