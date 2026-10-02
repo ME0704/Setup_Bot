@@ -55,7 +55,7 @@ def run():
         while True:
             for symbol in PAIRS:
                 try:
-                    results = bias_engine.evaluate_pair(symbol) + bias_engine_weekly.evaluate_pair(symbol)
+                    results = bias_engine.evaluate_pair(symbol)
 
                     for result in results:
                         tf_tag = result.get("timeframe_pair", "D1→H4")

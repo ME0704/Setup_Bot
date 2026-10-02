@@ -32,70 +32,43 @@ def format_message(result: dict) -> str:
     digits = result["digits"]
     is_bullish = result["bias"] == "bullish"
 
-    arrow = "▲" if is_bullish else "▼"
+    header_icon = "🟢" if is_bullish else "🔴"
     side = "BUY" if is_bullish else "SELL"
 
-    if result["rule_name"] == "Key level in range":
-        lo, hi = result["bos_range"]
-        formed_date = timeutil.format_eat_date_only(result["rejection_time"])
-        detail_line = (
-            f"{side} rejection at {result['shape']}-shape @ {_fmt(result['rejection_price'], digits)} "
-            f"(formed {formed_date}), inside the BOS range [{_fmt(lo, digits)}, {_fmt(hi, digits)}]."
-        )
-    elif result["rule_name"] == "Previous candle sweep":
-        formed_date = timeutil.format_eat_date_only(result["rejection_time"])
-        detail_line = (
-            f"{side} rejection at {_fmt(result['rejection_price'], digits)} (formed {formed_date}), "
-            f"after sweeping {_fmt(result['reference_level'], digits)}."
-        )
-    else:  # "OC key level"
-        formed_date = timeutil.format_eat_date_only(result["rejection_time"])
-        level_set_date = timeutil.format_eat_date_only(result["oc_level_formed_time"])
-        detail_line = (
-            f"{side} rejection at OC-shape @ {_fmt(result['reference_level'], digits)} "
-            f"(level set {level_set_date}, rejected {formed_date})."
-        )
-
-    now_eat = datetime.now(timezone.utc)
-
-    if result["trend_aligned"] is None:
-        alignment_text = "No Daily trend established yet"
+    # Extract the shape (V or A) dynamically
+    shape = result.get("shape", "V") 
+    if result["rule_name"] == "Previous candle sweep":
+        rej_type = f"{shape}-Shape KL (Liquidity Sweep)"
+    elif result["rule_name"] == "OC key level":
+        rej_type = "OC Level"
     else:
-        alignment_text = "Aligned" if result["trend_aligned"] else "Not aligned (counter-trend)"
+        rej_type = f"{shape}-Shape KL"
+
+    alignment = "Aligned ✅" if result["trend_aligned"] else "Counter-Trend ⚠️"
+    if result["trend_aligned"] is None:
+        alignment = "None established"
+
+    bos_time = timeutil.format_eat_compact(result['bos_time'])
 
     lines = [
-        f"{arrow} {side} · {result['symbol']} · {result.get('timeframe_pair', 'D1→H4')}",
-        "External breakout confirmed",
+        f"{header_icon} {side} BIAS · {result['symbol']} [D1 ➔ H4]",
         "",
-        f"Rule           : {result['rule_name']}",
-        f"Trend Alignment: {alignment_text}",
-        f"Rejection      : {timeutil.format_eat_compact(result['rejection_time'])}",
-        f"External BO    : {timeutil.format_eat_compact(result['bos_time'])}",
-        f"Level          : {_fmt(result['bos_broken_level'], digits)}",
-        "",
-        detail_line,
+        f"🎯 D1 Rejection: {_fmt(result['rejection_price'], digits)} ({rej_type})",
+        f"⚡ 4H External BOS: {_fmt(result['bos_broken_level'], digits)} at {bos_time}",
+        f"📊 Daily Trend: {alignment}",
     ]
 
-    if result.get("adverse_sweep"):
-        if is_bullish:
-            lines.append(
-                f" Previous day's HIGH ({_fmt(result['prior_day_high'], digits)}) was taken out "
-                f"before this setup:- use confirmation entry, not a blind limit order."
-            )
-        else:
-            lines.append(
-                f" Previous day's LOW ({_fmt(result['prior_day_low'], digits)}) was taken out "
-                f"before this setup:- use confirmation entry, not a blind limit order."
-            )
-
     if result["swept"] is not None:
-        lines.append(" Liquidity sweep confirmed (A+)")
+        lines.append("\n🔥 Grade A+ (Liquidity sweep confirmed)")
+
+    # Dynamic High/Low Warning
+    if result.get("adverse_sweep"):
+        level_name = "High" if is_bullish else "Low"
+        lines.append(f"\n⚠️ Warning: Previous Daily {level_name} has been taken. Use confirmation entry.")
 
     lines += [
         "",
-        " Not an entry signal. Bias only, wait for your entry model.",
-        "",
-        f"Sent {timeutil.format_eat_sent(now_eat)} EAT",
+        "⏳ Bias only. Execute via your own model."
     ]
 
     return "\n".join(lines)
