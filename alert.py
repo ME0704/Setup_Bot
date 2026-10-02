@@ -35,14 +35,16 @@ def format_message(result: dict) -> str:
     header_icon = "🟢" if is_bullish else "🔴"
     side = "BUY" if is_bullish else "SELL"
 
-    # Extract the shape (V or A) dynamically
+    # Extract the formed date and shape
+    formed_date_str = result["rejection_time"].strftime("%a %d %b")  # e.g., Fri 18 Sep
     shape = result.get("shape", "V") 
+
     if result["rule_name"] == "Previous candle sweep":
-        rej_type = f"{shape}-Shape KL (Liquidity Sweep)"
+        rej_type = f"{shape}-shape KL (Liquidity Sweep) · Formed {formed_date_str}"
     elif result["rule_name"] == "OC key level":
-        rej_type = "OC Level"
+        rej_type = f"OC Level · Formed {formed_date_str}"
     else:
-        rej_type = f"{shape}-Shape KL"
+        rej_type = f"{shape}-shape KL · Formed {formed_date_str}"
 
     alignment = "Aligned ✅" if result["trend_aligned"] else "Counter-Trend ⚠️"
     if result["trend_aligned"] is None:
@@ -61,7 +63,6 @@ def format_message(result: dict) -> str:
     if result["swept"] is not None:
         lines.append("\n🔥 Grade A+ (Liquidity sweep confirmed)")
 
-    # Dynamic High/Low Warning
     if result.get("adverse_sweep"):
         level_name = "High" if is_bullish else "Low"
         lines.append(f"\n⚠️ Warning: Previous Daily {level_name} has been taken. Use confirmation entry.")
